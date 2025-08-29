@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      - 'test-*'
 
 jobs:
   build:
@@ -27,9 +28,11 @@ jobs:
           override: true
 
       # 3. Install dependencies for Windows builds (on Linux/macOS runner if cross-compiling)
-      - name: Install Windows target (cross compile)
-        if: matrix.platform == 'ubuntu-latest' || matrix.platform == 'macos-latest'
-        run: rustup target add x86_64-pc-windows-gnu
+      - name: Install Windows target on Ubuntu
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
 
       # 4. Build the project
       - name: Build release binary
