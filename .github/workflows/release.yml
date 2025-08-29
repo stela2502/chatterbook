@@ -1,25 +1,23 @@
 name: Build and Release Chatterbook
 
-# Trigger only on new tag creation (semantic versioning e.g., v0.1.0)
+# Trigger on push of tags like v0.1.0
 on:
   push:
     tags:
       - 'v*.*.*'
-      - 'test-*'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform }}
     strategy:
       matrix:
         platform: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
-      # 1. Checkout the repository
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      # 1. Checkout repository
+      - uses: actions/checkout@v3
 
-      # 2. Set up Rust
+      # 2. Install Rust
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -27,13 +25,14 @@ jobs:
           profile: minimal
           override: true
 
-      # 3. Install dependencies for Windows builds (on Linux/macOS runner if cross-compiling)
-      - name: Install Windows target on Ubuntu
+      # 3. Install system dependencies if needed
+      - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y mingw-w64
           rustup target add x86_64-apple-darwin
+          sudo apt-get install -y pkg-config libssl-dev
 
       # 4. Build the project
       - name: Build release binary
@@ -50,26 +49,35 @@ jobs:
               ;;
           esac
 
-      # 5. Package binaries
-      - name: Prepare binaries
+      # 5. Prepare release folder and rename binaries
+      - name: Prepare release folder
         run: |
           mkdir -p release
-          case ${{ matrix.platform }} in
-            windows-latest)
-              cp target/x86_64-pc-windows-gnu/release/chatterbook.exe release/chatterbook-windows.exe
-              ;;
-            ubuntu-latest)
-              cp target/x86_64-unknown-linux-gnu/release/chatterbook release/chatterbook-linux
-              ;;
-            macos-latest)
-              cp target/x86_64-apple-darwin/release/chatterbook release/chatterbook-macos
-              ;;
-          esac
+          if [ "${{ matrix.platform }}" == "windows-latest" ]; then
+            cp target/release/chatterbook.exe release/chatterbook-windows.exe
+          elif [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
+            cp target/release/chatterbook release/chatterbook-linux
+          elif [ "${{ matrix.platform }}" == "macos-latest" ]; then
+            cp target/release/chatterbook release/chatterbook-macos
+          fi
 
-      # 6. Create GitHub Release and upload binaries
-      - name: Upload Release Assets
+      # 6. Optional: ZIP binaries (recommended for Windows users)
+      - name: ZIP binaries
+        run: |
+          cd release
+          if [ "${{ matrix.platform }}" == "windows-latest" ]; then
+            zip chatterbook-windows.zip chatterbook-windows.exe
+          elif [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
+            zip chatterbook-linux.zip chatterbook-linux
+          elif [ "${{ matrix.platform }}" == "macos-latest" ]; then
+            zip chatterbook-macos.zip chatterbook-macos
+          fi
+
+      # 7. Upload release assets
+      - name: Create Release and upload assets
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.ref_name }}
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
