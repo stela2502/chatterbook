@@ -16,6 +16,7 @@ struct Args {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Conversation {
     id: String,
     title: Option<String>,
@@ -57,16 +58,22 @@ fn main() -> anyhow::Result<()> {
     for conv in conversations {
         let title = conv.title.clone().unwrap_or_else(|| "untitled".to_string());
         let safe_title = sanitize_filename(&title);
-        let filename = args.outpath.join(format!("conversation_{}.md", safe_title));
+        
 
         let mut md = String::new();
         md.push_str(&format!("# {}\n\n", title));
 
-        if let Some(ts) = &conv.create_time {
-            use chrono::{NaiveDateTime, Utc, TimeZone};
-            let dt = Utc.timestamp_opt(ts.floor() as i64, ((ts.fract()*1e9) as u32)).unwrap();
+        let time = if let Some(ts) = &conv.create_time {
+            use chrono::{ Utc, TimeZone};
+            let dt = Utc.timestamp_opt(ts.floor() as i64, (ts.fract()*1e9) as u32).unwrap();
+            let time = format!("{}", dt);
             md.push_str(&format!("_Created: {}_\n\n", dt));
-        }
+            time
+        }else {
+            "unkown".to_string()
+        };
+        let save_time = sanitize_filename(&time);
+        let filename = args.outpath.join(format!("conversation_{}_{}.md", save_time,safe_title));
 
         if let Some(mapping) = conv.mapping.as_object() {
             let mut messages: Vec<(String, String)> = Vec::new();
