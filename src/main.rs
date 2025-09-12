@@ -137,7 +137,7 @@ fn main() -> anyhow::Result<()> {
                 .map(| entry | entry.children.first().unwrap().clone())
                 .unwrap_or_default();
 
-
+            #[cfg(debug_assertions)]
             println!("I got the root id '{}'", root_id );
             // Only traverse if root exists
             if !root_id.is_empty() {
@@ -164,12 +164,14 @@ fn main() -> anyhow::Result<()> {
                         md.push_str(&format!("**{}:**\n\n{}\n\n---\n\n", role, content));
                     }
                     if let Some(first_child) = entry.children.first() {
+                        #[cfg(debug_assertions)]
                         println!("Got the message id {id} -> with msg {:?}", first_child );
                         id = first_child;
                     } else {
                         break;
                     }
                 }
+                #[cfg(debug_assertions)]
                 if sections == 0 {
                     println!("But I could not identify the entry!");
                 }
