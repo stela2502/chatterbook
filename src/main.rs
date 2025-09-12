@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 use clap::Parser;
+use std::collections::HashMap;
 
 #[derive(Parser)]
 #[command(author, version, about = "Convert ChatGPT all data JSON to Markdown")]
@@ -24,19 +25,39 @@ struct Conversation {
     mapping: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
-struct Message {
-    author: Author,
-    content: Option<Content>,
+#[derive(Debug, Clone, Deserialize)]
+struct MessageEntry {
+    id: String,
+    message: Message,        // the nested "message" object
+    parent: String,
+    children: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
+struct Message {
+    id: String,
+    author: Author,
+    create_time: f64,
+    update_time: Option<f64>,
+    content: Option<Content>,
+    status: String,
+    end_turn: Option<bool>,
+    weight: f64,
+    metadata: serde_json::Value,
+    recipient: Option<String>,
+    channel: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct Author {
     role: String,
+    name: Option<String>,
+    metadata: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Content {
+    content_type: String,
     parts: Vec<String>,
 }
 
@@ -45,6 +66,8 @@ fn sanitize_filename(name: &str) -> String {
         .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
         .collect()
 }
+
+
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -75,7 +98,62 @@ fn main() -> anyhow::Result<()> {
         let save_time = sanitize_filename(&time);
         let filename = args.outpath.join(format!("conversation_{}_{}.md", save_time,safe_title));
 
+
         if let Some(mapping) = conv.mapping.as_object() {
+
+            let mut id = "".to_string();
+            let messages_map: HashMap<String, (Option<String>, MessageEntry)> = mapping
+                .values()
+                .filter_map(|v| serde_json::from_value::<MessageEntry>(v.clone()).ok())
+                .map(|entry| {
+                    // take the first child if any
+                    let first_child = entry.children.first().cloned();
+                    //println!("id {} and first child {:?} and parent {:?}", entry.id, first_child, entry.parent);
+                    if id == "".to_string() {
+                        id= entry.id.clone();
+                    }
+                    (entry.id.clone(), (first_child, entry))
+                })
+                .collect();
+            let root_id = messages_map
+                .values()
+                .find(|(_, entry)| !messages_map.contains_key(&entry.parent))
+                .map(|(_,entry)| entry.id.clone())
+                .unwrap_or_default();
+
+            
+            // Only traverse if root exists
+            if !root_id.is_empty() {
+                let mut id = &root_id;
+                while let Some((_, entry)) = messages_map.get(id) {
+                    // process entry.message
+                    let role = match entry.message.author.role.as_str() {
+                        "user" => "👤 User",
+                        "assistant" => "🤖 Assistant",
+                        other => other,
+                    };
+
+                    let content = entry.message
+                        .content
+                        .as_ref()
+                        .map(|c| c.parts.join("\n"))
+                        .unwrap_or_default();
+
+                    md.push_str(&format!("**{}:**\n\n{}\n\n---\n\n", role, content));
+
+                    // move to first child, stop if none
+                    if let Some(first_child) = entry.children.first() {
+                        id = first_child;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // root missing, skip this entry
+                println!("No root message found — skipping this entry");
+            }
+        };
+        /*
             let mut messages: Vec<(String, String)> = Vec::new();
 
             for (_id, entry) in mapping {
@@ -98,7 +176,7 @@ fn main() -> anyhow::Result<()> {
             for (role, content) in messages {
                 md.push_str(&format!("**{}:**\n\n{}\n\n---\n\n", role, content));
             }
-        }
+        }*/
 
         fs::write(&filename, md)?;
         println!("Wrote {}", filename.display());
