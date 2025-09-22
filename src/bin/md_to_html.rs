@@ -33,8 +33,8 @@ fn main() -> anyhow::Result<()> {
         path
     });
 
-    fs::write(output_path, html_output)?;
-    println!("✅ Markdown converted to HTML successfully.");
+    fs::write(&output_path, &html_output)?;
+    println!("✅ Markdown converted to HTML successfully.i\n'{output_path:?}'");
 
     Ok(())
 }
