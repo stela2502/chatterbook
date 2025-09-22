@@ -71,10 +71,48 @@ struct Author {
     metadata: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct Content {
-    content_type: String,
-    parts: Vec<Part>,
+#[derive(Debug, Deserialize, Clone)]
+struct Thought {
+    summary: String,
+    content: String,
+    #[serde(default)]
+    chunks: Vec<String>,
+    finished: bool,
+}
+
+
+#[derive(Debug, Deserialize, Clone)]
+struct ContentReference {
+    matched_text: String,
+    safe_urls: Vec<String>,
+    // add more fields as needed
+}
+
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "content_type")]
+enum Content {
+    #[serde(rename = "text")]
+    Text { parts: Vec<Part> },
+
+    #[serde(rename = "thoughts")]
+    Thoughts {
+        thoughts: Vec<Thought>,
+        #[serde(default)]
+        source_analysis_msg_id: Option<String>,
+    },
+    #[serde(rename = "code")]
+    Code {
+        language: Option<String>,
+        text: String,
+        response_format_name: Option<String>,
+    },
+    #[serde(rename = "reasoning_recap")]
+    ReasoningRecap {
+        content: String,
+        #[serde(default)]
+        content_references: Option<Vec<ContentReference>>,
+    },
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -142,7 +180,7 @@ fn main() -> anyhow::Result<()> {
             // Only traverse if root exists
             if !root_id.is_empty() {
                 let mut id = &root_id;  
-                while let Some( entry ) = messages_map.get(id) {
+                while let Some(entry) = messages_map.get(id) {
                     if let Some(msg) = &entry.message {
                         let role = match msg.author.role.as_str() {
                             "user" => "👤 User",
@@ -150,22 +188,42 @@ fn main() -> anyhow::Result<()> {
                             other => other,
                         };
 
-                        let content = msg.content.parts.iter()
-                            .filter_map(|part| {
-                                if let Part::Text(s) = part {
-                                    Some(s.as_str())
-                                } else {
-                                    None
+                        let content = match &msg.content {
+                            Content::Text { parts } => parts
+                                .iter()
+                                .filter_map(|p| match p { Part::Text(s) => Some(s.as_str()), &Part::Image { .. } => todo!() })
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+
+                            Content::Thoughts { thoughts, .. } => thoughts
+                                .iter()
+                                .map(|t| format!("**{}**\n{}", t.summary, t.content))
+                                .collect::<Vec<_>>()
+                                .join("\n\n"),
+                            Content::Code { language, text, .. } => {
+                                let lang = language.as_deref().unwrap_or("text");
+                                format!("```{}\n{}\n```", lang, text)
+                            },
+                            Content::ReasoningRecap { content, content_references } => {
+                                let mut md = content.clone();
+                                if let Some(refs) = content_references {
+                                    for r in refs {
+                                        if !r.safe_urls.is_empty() {
+                                            md.push_str(&format!("\n[Reference]({})", r.safe_urls[0]));
+                                        }
+                                    }
                                 }
-                            })
-                            .join("\n");
-                            
+                                md
+                            },
+                        };
+
                         sections += 1;
                         md.push_str(&format!("**{}:**\n\n{}\n\n---\n\n", role, content));
                     }
+
                     if let Some(first_child) = entry.children.first() {
                         #[cfg(debug_assertions)]
-                        println!("Got the message id {id} -> with msg {:?}", first_child );
+                        println!("Got the message id {id} -> with msg {:?}", first_child);
                         id = first_child;
                     } else {
                         break;
